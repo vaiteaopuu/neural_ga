@@ -59,8 +59,10 @@ lr = 10**-2                 # learning rate for the backpropagation
 seed = 42
 dim_hid = 256                   # hidden units
 nb_hid = 2                      # nb of hidden layers
+pop_size = 10
+nb_gen = 100
 
-nn_traj = evolve_population(dim, 1000, 100, fitness, lr=10**-4, seed_v=seed,
+nn_traj = evolve_population(dim, nb_gen, pop_size, fitness, lr=lr, seed_v=seed,
                             dim_hid=dim_hid, nb_hid=nb_hid)
 
 plt.plot(nn_traj)
