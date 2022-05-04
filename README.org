@@ -1,0 +1,70 @@
+VAE-based genetic algorithm for discrete and continuous optimization.
+
+The one max problem:
+
+#+begin_src python :results output
+from src.nn_ga_disc import evolve_population
+from torch import unsqueeze
+from matplotlib import pyplot as plt
+
+def fitness(args):
+    "compute fitness"
+    conf, j_parm = args
+    fit = conf.sum()
+    return fit
+
+
+# optimization parameters
+lr = 10**-2                 # learning rate for the backpropagation
+coef_gain = -10**4          # weight for good mutations
+coef_entropy = 0.1          # weight to maintain entropy
+coef_kld = 1                # weight for the N(0, 1) constraint
+parms = (coef_gain, coef_entropy, coef_kld)
+
+# Define the problem
+spins = [0, 1]
+
+# target structure
+j_parm = None
+len_conf = 100
+
+# EA simulation parameters
+nb_gen = 100
+pop_size = 100
+nb_core = 2
+
+traj = evolve_population(len_conf, nb_gen, pop_size, parms, j_parm, spins,
+                          fitness, learning_rate=lr, nb_core=nb_core)
+fit_val = [ft.max() for conf, ft in traj]
+plt.plot(fit_val)
+plt.show()
+#+end_src
+
+#+RESULTS:
+
+The optimize a quadratic function:
+
+#+begin_src python :results output
+from matplotlib import pyplot as plt
+from src.nn_ga_cont import evolve_population
+
+def fitness(conf):
+    "compute fitness"
+    return (conf**2).sum()
+
+dim = 2
+
+# optimization parameters
+lr = 10**-2                 # learning rate for the backpropagation
+seed = 42
+dim_hid = 256                   # hidden units
+nb_hid = 2                      # nb of hidden layers
+
+nn_traj = evolve_population(dim, 1000, 100, fitness, lr=10**-4, seed_v=seed,
+                            dim_hid=dim_hid, nb_hid=nb_hid)
+
+plt.plot(nn_traj)
+plt.show()
+#+end_src
+
+#+RESULTS:
