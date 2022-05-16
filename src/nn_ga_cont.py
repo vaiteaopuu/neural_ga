@@ -2,13 +2,11 @@
 
 from .model_cont import Mut_operator
 
-from torch import tensor, float32 as tfloat32, optim, float64 as tfloat64
-from torch import argmax, normal, log as tlog, zeros, manual_seed, device
-from torch import cat as tcat, zeros
+from torch import tensor, optim, float64 as tfloat64
+from torch import argmin, zeros, manual_seed, cat as tcat
 from torch.nn import Softmax
-import torch
-from numpy.random import choice
 
+from numpy.random import choice
 import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -27,35 +25,29 @@ def compute_fit(pop, fitness):
 
 
 def evolve_population(coor_size, nb_gen, pop_size, fitness, temp=1, lr=10**-4,
-                      seed_v=1, dim_hid=2**8, nb_hid=2):
+                      seed_v=1, dim_hid=2**8, nb_hid=2, dim_lat=2**4):
     # create the initial population
     manual_seed(seed_v)
     pop = create_init_pop(coor_size, pop_size)
     mut_op = Mut_operator(pop.shape[1], pop_size, dim_hid=dim_hid,
-                          nb_hid=nb_hid)
+                          nb_hid=nb_hid, dim_lat=dim_lat)
     optimizer = optim.Adam(mut_op.parameters(), lr=lr)
-    soft = Softmax(dim=-1)
 
     cur_fit = compute_fit(pop, fitness)
     bfit = cur_fit.min()
-    trajectory = [bfit]
+    trajectory = [bfit.item()]
+    soft = Softmax(dim=-1)
 
     for step in range(nb_gen):
-        pop_n, mu_, sig_, lat = mut_op(pop)
+        pop_n = mut_op(pop)
 
         new_fit = compute_fit(pop_n, fitness)
 
-        delta_f = (new_fit - cur_fit)
-        wei_f = soft(-new_fit/temp)
-
-        bar_dir = ((wei_f * pop_n.T).T).sum(0).detach()
-
-        max_id = argmax(wei_f)
+        delta_r = pop_n - pop
+        max_id = argmin(new_fit)
         min_dir = pop_n[max_id, :].detach()
 
-        kld = (0.5*(mu_**2 + mu_**2 - 2*tlog(sig_) - 1)).mean(1)
-
-        loss = (((min_dir - pop_n)**2).sum(1)).mean() + kld.mean()
+        loss = (((min_dir - pop_n)**2).sum(1)).mean()
         loss.backward()
 
         optimizer.step()
@@ -63,6 +55,14 @@ def evolve_population(coor_size, nb_gen, pop_size, fitness, temp=1, lr=10**-4,
 
         pop = pop_n.clone().detach()
         cur_fit = new_fit.detach()
+
+        # all_pop = tcat((pop, pop_n), dim=0)
+        # all_fit = tcat((cur_fit, new_fit), dim=0)
+        # wei_f = soft(-all_fit)
+        # pop_ids = choice(list(range(all_pop.shape[0])), p=wei_f, size=pop_size)
+        # pop = all_pop[pop_ids, :].detach()
+        # pop = all_pop[pop_ids, :].detach()
+        # cur_fit = all_fit[pop_ids].detach()
 
         if bfit > cur_fit.min():
             bfit = cur_fit.min()

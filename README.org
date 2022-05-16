@@ -1,8 +1,9 @@
-VAE-based genetic algorithm for discrete and continuous optimization.
+Neural population-based optimization, inspired by genetic algorithms, for
+discrete and continuous optimizations. See below some test cases.
 
 The one max problem:
 
-#+begin_src python :results output
+#+begin_src python :results output 
 from src.nn_ga_disc import evolve_population
 from torch import unsqueeze
 from matplotlib import pyplot as plt
@@ -11,13 +12,15 @@ def fitness(args):
     "compute fitness"
     conf, j_parm = args
     fit = conf.sum()
-    return fit
-
+    return -fit
 
 # optimization parameters
-lr = 10**-2                 # learning rate for the backpropagation
-coef_gain = -10**4          # weight for good mutations
-coef_entropy = 0.1          # weight to maintain entropy
+lr = 10**-3                 # learning rate for the backpropagation
+coef_gain = 10**4           # weight for good mutations
+coef_entropy = 0.02          # weight to maintain entropy
+nb_hid = 1                  # number of hidden layer
+dim_hid = 2**8             # number of hidden units
+dim_lat = 2**7              # number of hidden units
 coef_kld = 1                # weight for the N(0, 1) constraint
 parms = (coef_gain, coef_entropy, coef_kld)
 
@@ -29,20 +32,21 @@ j_parm = None
 len_conf = 100
 
 # EA simulation parameters
-nb_gen = 100
-pop_size = 100
-nb_core = 2
+nb_gen = 500
+pop_size = 40
 
+all_res = []
 traj = evolve_population(len_conf, nb_gen, pop_size, parms, j_parm, spins,
-                          fitness, learning_rate=lr, nb_core=nb_core)
-fit_val = [ft.max() for conf, ft in traj]
+                         fitness, learning_rate=lr, dim_hid=dim_hid,
+                         nb_hid=nb_hid, dim_lat=dim_lat)
+fit_val = [ft.min() for conf, ft in traj]
 plt.plot(fit_val)
 plt.show()
 #+end_src
 
 #+RESULTS:
 
-The optimize a quadratic function:
+Minimize the $f(x_1,...x_N) = \sum_i x_i^2$ function:
 
 #+begin_src python :results output
 from matplotlib import pyplot as plt
@@ -58,9 +62,9 @@ dim = 2
 lr = 10**-2                 # learning rate for the backpropagation
 seed = 42
 dim_hid = 256                   # hidden units
-nb_hid = 2                      # nb of hidden layers
-pop_size = 10
-nb_gen = 100
+nb_hid = 1                      # nb of hidden layers
+pop_size = 20                   # population size
+nb_gen = 500                    # max iteration
 
 nn_traj = evolve_population(dim, nb_gen, pop_size, fitness, lr=lr, seed_v=seed,
                             dim_hid=dim_hid, nb_hid=nb_hid)

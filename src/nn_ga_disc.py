@@ -1,16 +1,17 @@
-from torch import reshape, argmax, tensor, float32 as tfloat32, optim
+from torch import reshape, argmax, tensor, float32 as tfloat32, optim, clamp, ones as tones
 from torch import float64 as tfloat64, log as tlog, sign as tsign, exp as texp
-from torch.nn import LogSoftmax
+from torch.nn import Softmax, LogSoftmax
 from torch.nn.utils import clip_grad_norm_
 from torch.multiprocessing import set_sharing_strategy
 
 from numpy import array, identity
-from numpy.random import uniform
+from numpy.random import uniform, choice
 
 from .model_disc import Mut_operator
 
 
 set_sharing_strategy('file_system')
+SOFT = Softmax(-1)
 LSOFT = LogSoftmax(-1)
 
 
@@ -44,7 +45,7 @@ def compute_fit(population, j_parm, fitness):
 
 
 def evolve_population(len_conf, nb_gen, nb_conf, parms, j_parm, spins, fitness,
-                      learning_rate=10**-2, temp=1.0, nb_core=1):
+                      learning_rate=10**-2, dim_hid=2**8, nb_hid=2, dim_lat=2**4):
     """evolve the population with random mutation
     Sample with replacement sequences according to the population fitness
     len_conf = length of the configuration/rna sequence...
@@ -55,16 +56,15 @@ def evolve_population(len_conf, nb_gen, nb_conf, parms, j_parm, spins, fitness,
     temp     = temperature of the decoding
     parms = tuple for [coef_gain, coef_entropy, coef_kld]
     """
-    # set_num_threads(nb_core)
-    # set_start_method("spawn")
     coef_gain, coef_entropy, coef_kld = parms
 
     bin_rep = identity(len(spins))
     init_pop = initialization(len_conf, nb_conf, spins)
     mut_op = Mut_operator(len_conf * len(spins), nb_conf, nb_state=len(spins),
-                          emb_size=len(spins)*len(spins))
+                          nb_hid=nb_hid, dim_hid=dim_hid, dim_lat=dim_lat)
     optimizer = optim.Adam(mut_op.parameters(), lr=learning_rate)
     # optimizer = optim.RMSprop(mut_op.parameters(), lr=learning_rate)
+    # optimizer = optim.SGD(mut_op.parameters(), lr=learning_rate, momentum=0.9)
 
     # first iteration
     conf_pop, pop_bin = read_population(texp(init_pop), nb_conf, len_conf,
@@ -74,45 +74,58 @@ def evolve_population(len_conf, nb_gen, nb_conf, parms, j_parm, spins, fitness,
     trajectory = []
 
     for step in range(nb_gen):
+        optimizer.zero_grad()
         # get the modify log(p)
-        mutated_pop, mu_, sig_ = mut_op(texp(init_pop), temp=temp)
+        mutated_pop, mu, sig = mut_op(texp(init_pop))
+        mutated_pop = clamp(mutated_pop, min=-5., max=5.)
         # read the configuration from the log(p)
         new_conf_pop, pop_n_bin = read_population(texp(mutated_pop), nb_conf,
-                                                  len_conf, spins, bin_rep)
+                                                len_conf, spins, bin_rep)
+        mutations = pop_n_bin - (pop_n_bin * pop_bin)
+        avg_mut = mutations.sum(-1).mean().item()
+
         # compute the fitness
         cur_fit = compute_fit(new_conf_pop, j_parm, fitness)
         trajectory += [(new_conf_pop, cur_fit)]
-        if bfit < prev_fit.max():
-            bfit = prev_fit.max()
 
-        mutations = pop_n_bin - (pop_n_bin * pop_bin)
-        mut_rate = mutations.sum(1).sum() * (1./nb_conf)
+        if bfit > prev_fit.min():
+            bfit = prev_fit.min()
+
 
         # kl divergence from the mutation
         kl_pop = texp(mutated_pop) * (mutated_pop-init_pop)
         ent_pop = texp(mutated_pop) * (mutated_pop)
         p_mutation = (kl_pop * mutations).mean(1)
-        # p_mutation = (kl_pop).sum(1)
+        not_mutated = (tones(mutations.shape) - mutations) * ent_pop
 
         gain = (cur_fit - prev_fit)
 
-        kld = (0.5*(sig_ + mu_**2 - 2*tlog(sig_) - 1)).sum(-1).mean()
-
         # increase kl for good mutations and decrease for bad ones
+        # m_gain = (p_mutation.sum(-1) * SOFT(-cur_fit)).mean()
         m_gain = (p_mutation * tsign(gain)).mean()
-        nov_gain = (ent_pop.mean(1)).mean()
+        nov_gain = (ent_pop.sum(-1)).mean()
+        # nov_gain = (ent_pop.sum(1) * SOFT(-cur_fit)).mean()
+        kld = (0.5*(sig + mu**2 - 2*tlog(sig) - 1)).sum(-1).mean()
 
         loss = coef_gain * m_gain \
             + coef_entropy * nov_gain\
             + coef_kld * kld
 
+        # loss = coef_gain * m_gain + coef_entropy * ent_pop.mean(1).mean()
+        # loss = coef_gain * nov_gain
+
+        # print("{:5d} {:8.1f} {:8.1f} {:8.1f} {:8.1f}".format(step, cur_fit.min().item(), avg_mut, loss.item(), mutated_pop.sum(-1).mean().item()))
         loss.backward()
-
-        clip_grad_norm_(mut_op.parameters(), 2)
         optimizer.step()
-        optimizer.zero_grad()
 
-        prev_fit = cur_fit
+        prev_fit = cur_fit.detach()
         init_pop = mutated_pop.detach()
         pop_bin = pop_n_bin.detach()
+
+        # prob = SOFT(-cur_fit/0.1)
+        # pop_ids = choice(list(range(nb_conf)), p=prob, size=nb_conf)
+        # init_pop = mutated_pop[pop_ids, :].detach()
+        # pop_bin = pop_n_bin[pop_ids, :].detach()
+        # prev_fit = cur_fit[pop_ids].detach()
+
     return trajectory
